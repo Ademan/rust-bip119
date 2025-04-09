@@ -1,0 +1,18 @@
+[package]
+name = "bip119"
+version = "0.1.0"
+license = "CC0-1.0"
+edition = "2021"
+description = "Minimal support for BIP-119 CHECKTEMPLATEVERIFY"
+readme = "README.md"
+exclude = ["tests"]
+
+[features]
+serde = ["dep:serde", "bitcoin/serde"]
+
+[dependencies]
+bitcoin = "0.32"
+serde = { version = "1.0.103", default-features = false, features = [ "derive", "alloc" ], optional = true }
+
+[dev-dependencies]
+serde_json = "1.0.0"
