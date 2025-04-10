@@ -3,17 +3,10 @@
 
 #![cfg(feature = "serde")]
 
-// FIXME: sort imports
 use bip119::DefaultCheckTemplateVerifyHash;
-use bitcoin::secp256k1::{Secp256k1, SecretKey};
-use bitcoin::{
-    io::Cursor,
-    hex::FromHex,
-};
-use bitcoin::;
-use bitcoin::hashes::Hash;
-use bitcoin::Transaction;
 use bitcoin::consensus::{Encodable,Decodable};
+use bitcoin::secp256k1::{Secp256k1, SecretKey};
+use bitcoin::{hashes::Hash, hex::FromHex, io::Cursor, Transaction};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -40,7 +33,7 @@ enum CtvTestVectorEntry {
     Documentation(String),
 }
 
-fn get_ctv_test_vectors() -> impl Iterator<Item=(Transaction, u32, DefaultCheckTemplateVerifyHash)> {
+fn get_ctv_test_vectors() -> impl Iterator<Item = (Transaction, u32, DefaultCheckTemplateVerifyHash)> {
     let ctv_test_vectors = include_str!("data/ctvhash.json");
     let ctv_test_vectors: Vec<CtvTestVectorEntry> = serde_json::from_str(ctv_test_vectors).expect("failed to parse ctv test vectors");
 
