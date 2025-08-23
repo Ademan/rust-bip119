@@ -9,7 +9,7 @@ use bitcoin::blockdata::locktime::absolute;
 use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::hashes::{hash_newtype, sha256, Hash};
 use bitcoin::io::Write;
-use bitcoin::{Script, Sequence, transaction::Version, Transaction, TxOut};
+use bitcoin::{script::PushBytes, Script, Sequence, transaction::Version, Transaction, TxOut};
 
 pub use bitcoin::opcodes::all::OP_NOP4 as OP_CHECKTEMPLATEVERIFY;
 
@@ -17,6 +17,12 @@ hash_newtype! {
     /// Default CHECKTEMPLATEVERIFY hash of a transaction
     #[hash_newtype(forward)]
     pub struct DefaultCheckTemplateVerifyHash(sha256::Hash);
+}
+
+impl AsRef<PushBytes> for DefaultCheckTemplateVerifyHash {
+    fn as_ref(&self) -> &PushBytes {
+        self.as_byte_array().into()
+    }
 }
 
 impl From<DefaultCheckTemplateVerifyHash> for bitcoin::secp256k1::Message {

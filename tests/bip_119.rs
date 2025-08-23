@@ -99,3 +99,12 @@ fn test_secp256k1_sign() {
 
     let _signature = secp.sign_schnorr_no_aux_rand(&ctv_hash.into(), &keypair);
 }
+
+// Really just asserting that this compiles
+#[test]
+fn test_pushbytes() {
+    let ctv_hash = get_ctv_hash();
+
+    let mut script = bitcoin::ScriptBuf::new();
+    script.push_slice(ctv_hash);
+}
