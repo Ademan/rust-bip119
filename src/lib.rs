@@ -5,10 +5,11 @@
 //! Implementation of BIP-119 default template hash calculation, as defined at
 //! <https://github.com/bitcoin/bips/blob/master/bip-0119.mediawiki>
 
+use bitcoin::blockdata::locktime::absolute;
 use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::hashes::{hash_newtype, sha256, Hash};
 use bitcoin::io::Write;
-use bitcoin::Transaction;
+use bitcoin::{Script, Sequence, transaction::Version, Transaction, TxOut};
 
 pub use bitcoin::opcodes::all::OP_NOP4 as OP_CHECKTEMPLATEVERIFY;
 
@@ -36,58 +37,105 @@ impl Decodable for DefaultCheckTemplateVerifyHash {
     }
 }
 
+/// Build an intermediate hash from an iterator of `Sequence`s
+pub fn hash_sequences<I>(sequences: I) -> sha256::Hash
+where
+    I: IntoIterator<Item = Sequence>,
+{
+    let mut sequences_sha256 = sha256::Hash::engine();
+
+    for sequence in sequences {
+        let sequence: u32 = sequence.to_consensus_u32();
+        sequences_sha256.write(&sequence.to_le_bytes()).expect(CTV_ENC_EXPECT_MSG);
+    }
+
+    sha256::Hash::from_engine(sequences_sha256)
+}
+
+/// Build an intermediate hash from an iterator of script sigs if any script sigs are non-empty
+pub fn hash_script_sigs<S, I>(script_sigs: I) -> Option<sha256::Hash>
+where
+    S: AsRef<Script>,
+    I: IntoIterator<Item = S> + Clone,
+{
+    let any_script_sigs = script_sigs.clone().into_iter()
+        .any(|script_sig| !script_sig.as_ref().is_empty());
+
+    if any_script_sigs {
+        let mut script_sig_sha256 = sha256::Hash::engine();
+
+        for script_sig in script_sigs {
+            script_sig.as_ref().consensus_encode(&mut script_sig_sha256).expect(CTV_ENC_EXPECT_MSG);
+        }
+
+        Some(sha256::Hash::from_engine(script_sig_sha256))
+    } else {
+        None
+    }
+}
+
+/// Build an intermediate hash from an iterator of `TxOut`s
+fn hash_outputs<'a, I: IntoIterator<Item = &'a TxOut>>(outputs: I) -> sha256::Hash {
+    let mut outputs_sha256 = sha256::Hash::engine();
+    for output in outputs {
+        output.consensus_encode(&mut outputs_sha256).expect(CTV_ENC_EXPECT_MSG);
+    }
+
+    sha256::Hash::from_engine(outputs_sha256)
+}
+
 const CTV_ENC_EXPECT_MSG: &str = "hash writes are infallible";
 
 impl DefaultCheckTemplateVerifyHash {
     /// Calculate the BIP-119 default template for a transaction at a particular input index
-    pub fn new(transaction: &Transaction, input_index: u32) -> Self {
+    pub fn from_transaction(transaction: &Transaction, input_index: u32) -> Self {
+        let script_sig_sha256 = hash_script_sigs(transaction.input.iter().map(|input| &input.script_sig));
+
+        let sequences_sha256 = hash_sequences(transaction.input.iter().map(|input| input.sequence));
+
+        Self::from_components(
+            transaction.version,
+            transaction.lock_time,
+            transaction.input.len() as u32,
+            script_sig_sha256,
+            sequences_sha256,
+            transaction.output.len() as u32,
+            hash_outputs(&transaction.output),
+            input_index,
+        )
+    }
+
+    /// Low level function to calculate the BIP-119 default template from intermediate hashes and
+    /// individual components.
+    pub fn from_components(
+        version: Version,
+        lock_time: absolute::LockTime,
+        vin_count: u32,
+        script_sig_sha256: Option<sha256::Hash>,
+        sequences_sha256: sha256::Hash,
+        vout_count: u32,
+        outputs_sha256: sha256::Hash,
+        input_index: u32
+    ) -> Self {
         // Since sha256::Hash::write() won't fail and consensus_encode() guarantees to never
         // fail unless the underlying Write::write() fails, we don't need to worry about
         // fallibility
         let mut sha256 = sha256::Hash::engine();
 
-        transaction.version.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
-        transaction.lock_time.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
+        version.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
+        lock_time.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
 
-        let any_script_sigs = transaction.input.iter()
-            .any(|input| !input.script_sig.is_empty());
-
-        if any_script_sigs {
-            let mut script_sig_sha256 = sha256::Hash::engine();
-
-            for input in transaction.input.iter() {
-                input.script_sig.consensus_encode(&mut script_sig_sha256).expect(CTV_ENC_EXPECT_MSG);
-            }
-
-            let script_sig_sha256 = sha256::Hash::from_engine(script_sig_sha256);
+        if let Some(script_sig_sha256) = script_sig_sha256 {
             script_sig_sha256.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
         }
 
-        let vin_count: u32 = transaction.input.len() as u32;
         sha256.write(&vin_count.to_le_bytes()).expect(CTV_ENC_EXPECT_MSG);
 
-        {
-            let mut sequences_sha256 = sha256::Hash::engine();
-            for input in transaction.input.iter() {
-                let sequence: u32 = input.sequence.to_consensus_u32();
-                sequences_sha256.write(&sequence.to_le_bytes()).expect(CTV_ENC_EXPECT_MSG);
-            }
-            let sequences_sha256 = sha256::Hash::from_engine(sequences_sha256);
-            sequences_sha256.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
-        }
+        sequences_sha256.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
 
-        let vout_count: u32 = transaction.output.len() as u32;
         sha256.write(&vout_count.to_le_bytes()).expect(CTV_ENC_EXPECT_MSG);
 
-        {
-            let mut outputs_sha256 = sha256::Hash::engine();
-            for output in transaction.output.iter() {
-                output.consensus_encode(&mut outputs_sha256).expect(CTV_ENC_EXPECT_MSG);
-            }
-
-            let outputs_sha256 = sha256::Hash::from_engine(outputs_sha256);
-            outputs_sha256.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
-        }
+        outputs_sha256.consensus_encode(&mut sha256).expect(CTV_ENC_EXPECT_MSG);
 
         sha256.write(&input_index.to_le_bytes()).expect(CTV_ENC_EXPECT_MSG);
 

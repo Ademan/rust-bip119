@@ -15,4 +15,5 @@ bitcoin = "0.32"
 serde = { version = "1.0.103", default-features = false, features = [ "derive", "alloc" ], optional = true }
 
 [dev-dependencies]
+bip119 = { path = ".", features = [ "serde" ] }
 serde_json = "1.0.0"

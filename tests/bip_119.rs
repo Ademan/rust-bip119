@@ -54,7 +54,7 @@ fn get_ctv_test_vectors() -> impl Iterator<Item = (Transaction, u32, DefaultChec
 #[test]
 fn test_ctv_hash() {
     for (tx, index, expected_ctv_hash) in get_ctv_test_vectors() {
-        let ctv_hash = DefaultCheckTemplateVerifyHash::new(&tx, index);
+        let ctv_hash = DefaultCheckTemplateVerifyHash::from_transaction(&tx, index);
         assert_eq!(ctv_hash, expected_ctv_hash);
     }
 }
