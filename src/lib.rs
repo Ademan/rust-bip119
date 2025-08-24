@@ -11,6 +11,10 @@ use bitcoin::hashes::{hash_newtype, sha256, Hash};
 use bitcoin::io::Write;
 use bitcoin::{script::PushBytes, Script, Sequence, transaction::Version, Transaction, TxOut};
 
+/// The BIP redefines `OP_NOP4` to fail script evaluation if the top element on
+/// the stack is 32 bytes long and does not match the default template hash calculated for the
+/// current input index. If the top element is not 32 bytes long, this opcode
+/// does nothing. In both cases, the stack is not modified.
 pub use bitcoin::opcodes::all::OP_NOP4 as OP_CHECKTEMPLATEVERIFY;
 
 hash_newtype! {
