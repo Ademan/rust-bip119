@@ -150,3 +150,63 @@ impl DefaultCheckTemplateVerifyHash {
         )
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use bitcoin::{io::Cursor, hex::FromHex};
+    use bitcoin::secp256k1::{Secp256k1, SecretKey};
+
+    use std::str::FromStr;
+
+    fn get_ctv_hash_bytes() -> Vec<u8> {
+        // sha256("Activate CTV!")
+        Vec::from_hex("b68f63adb2804e999b1d6bfffe060dc004fb40169fa10cb6a6486ddb42200e65").unwrap()
+    }
+
+    fn get_ctv_hash() -> DefaultCheckTemplateVerifyHash {
+        DefaultCheckTemplateVerifyHash::from_slice(&get_ctv_hash_bytes()).unwrap()
+    }
+
+    // Probably a bit gratuitous, the rust-bitcoin internal tests for Hash newtypes ought to cover
+    // this, but there's nothing wrong with belt and suspenders
+    #[test]
+    fn test_consensus_decode_encode() {
+        let ctv_hash_bytes = get_ctv_hash_bytes();
+
+        let decoded_ctv = DefaultCheckTemplateVerifyHash::consensus_decode(&mut Cursor::new(&ctv_hash_bytes))
+            .expect("decode should succeed");
+
+        let ctv_hash = DefaultCheckTemplateVerifyHash::from_slice(ctv_hash_bytes.as_ref()).unwrap();
+
+        assert_eq!(&decoded_ctv, &ctv_hash);
+
+        let mut encoded_bytes = Vec::<u8>::new();
+        ctv_hash.consensus_encode(&mut encoded_bytes)
+            .expect("Consensus encode shouldn't fail");
+
+        assert_eq!(&ctv_hash_bytes, &encoded_bytes);
+    }
+
+    // Really just asserting that this compiles
+    #[test]
+    fn test_secp256k1_sign() {
+        let pk = SecretKey::from_str("b68f63adb2804e999b1d6bfffe060dc004fb40169fa10cb6a6486ddb42200e65").unwrap();
+        let ctv_hash = get_ctv_hash();
+        let secp = Secp256k1::new();
+
+        let keypair = pk.keypair(&secp);
+
+        let _signature = secp.sign_schnorr_no_aux_rand(&ctv_hash.into(), &keypair);
+    }
+
+    // Really just asserting that this compiles
+    #[test]
+    fn test_pushbytes() {
+        let ctv_hash = get_ctv_hash();
+
+        let mut script = bitcoin::ScriptBuf::new();
+        script.push_slice(ctv_hash);
+    }
+}
