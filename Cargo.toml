@@ -3,7 +3,10 @@ name = "bip119"
 version = "0.1.0"
 license = "CC0-1.0"
 edition = "2021"
+repository = "https://github.com/ademan/rust-bip119/"
 description = "Minimal support for BIP-119 CHECKTEMPLATEVERIFY"
+categories = ["cryptography::cryptocurrencies"]
+keywords = [ "crypto", "bitcoin" ]
 readme = "README.md"
 exclude = ["tests"]
 
