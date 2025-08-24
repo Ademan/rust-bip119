@@ -85,7 +85,7 @@ where
 }
 
 /// Build an intermediate hash from an iterator of `TxOut`s
-fn hash_outputs<'a, I: IntoIterator<Item = &'a TxOut>>(outputs: I) -> sha256::Hash {
+pub fn hash_outputs<'a, I: IntoIterator<Item = &'a TxOut>>(outputs: I) -> sha256::Hash {
     let mut outputs_sha256 = sha256::Hash::engine();
     for output in outputs {
         output.consensus_encode(&mut outputs_sha256).expect(CTV_ENC_EXPECT_MSG);
