@@ -5,11 +5,25 @@
 //! Implementation of BIP-119 default template hash calculation, as defined at
 //! <https://github.com/bitcoin/bips/blob/master/bip-0119.mediawiki>
 
+pub mod script_pubkey;
+
 use bitcoin::blockdata::locktime::absolute;
 use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::hashes::{hash_newtype, sha256, Hash};
 use bitcoin::io::Write;
-use bitcoin::{script::PushBytes, Script, Sequence, transaction::Version, Transaction, TxOut};
+use bitcoin::{script::PushBytes, Script, Sequence, transaction::Version, Transaction};
+
+pub use script_pubkey::{
+    PayToAnchor,
+    PayToPubkey,
+    PayToPubkeyHash,
+    PayToScriptHash,
+    PayToWitnessPubkeyHash,
+    PayToWitnessScriptHash,
+    PayToTaproot,
+    ScriptPubkey,
+    TxOut,
+};
 
 /// The BIP redefines `OP_NOP4` to fail script evaluation if the top element on
 /// the stack is 32 bytes long and does not match the default template hash calculated for the
@@ -84,8 +98,17 @@ where
     }
 }
 
-/// Build an intermediate hash from an iterator of [`TxOut`]s
-pub fn hash_outputs<'a, I: IntoIterator<Item = &'a TxOut>>(outputs: I) -> sha256::Hash {
+/// A marker trait defining a transaction output type usable with [`hash_outputs`]
+pub trait HashableOutput : Encodable { }
+
+impl HashableOutput for bitcoin::TxOut { }
+impl HashableOutput for &bitcoin::TxOut { }
+
+impl<S: Encodable> HashableOutput for script_pubkey::TxOut<S> { }
+impl<S: Encodable> HashableOutput for &script_pubkey::TxOut<S> { }
+
+/// Build an intermediate hash from an iterator of outputs
+pub fn hash_outputs<O: HashableOutput, I: IntoIterator<Item = O>>(outputs: I) -> sha256::Hash {
     let mut outputs_sha256 = sha256::Hash::engine();
     for output in outputs {
         output.consensus_encode(&mut outputs_sha256).expect(CTV_ENC_EXPECT_MSG);
@@ -243,7 +266,8 @@ impl DefaultCheckTemplateVerifyHash {
     /// commitments can potentially reap a substantial benefit.
     /// The convenience functions [`hash_sequences`], [`hash_script_sigs`], and
     /// [`hash_outputs`] are intended to simplify this process, however even
-    /// more allocations can be avoided by computing `script_sig_sha256` and `outputs_sha256`
+    /// more allocations can be avoided by computing `script_sig_sha256` and `outputs_sha256` or
+    /// using [`crate::TxOut`].
     /// manually.
     ///
     /// # Examples
@@ -252,40 +276,33 @@ impl DefaultCheckTemplateVerifyHash {
     /// # use bitcoin::hashes::{Hash, HashEngine, sha256};
     /// # use bitcoin::opcodes::all::OP_PUSHBYTES_32;
     /// # use bitcoin::secp256k1::XOnlyPublicKey;
-    /// # use bitcoin::{absolute, Amount, blockdata::transaction, consensus::Encodable, io::Write, Opcode, Sequence, WitnessVersion};
-    /// use bip119::{DefaultCheckTemplateVerifyHash, hash_sequences};
+    /// # use bitcoin::{absolute, Amount, blockdata::transaction, consensus::Encodable, io::Write, key::TweakedPublicKey, Opcode, Sequence, WitnessVersion};
+    /// use bip119::{DefaultCheckTemplateVerifyHash, hash_outputs, hash_sequences, ScriptPubkey};
     ///
     /// let sequences = [Sequence::ZERO, Sequence::ZERO, Sequence::from_height(42)];
     ///
     /// let outputs = [
-    ///     (Amount::from_sat(42_000), XOnlyPublicKey::from_slice(&[1u8; 32]).unwrap()),
-    ///     (Amount::from_sat(999_999), XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap()),
+    ///     bip119::TxOut {
+    ///         value: Amount::from_sat(42_000),
+    ///         script_pubkey: ScriptPubkey::new_p2tr_tweaked(
+    ///             TweakedPublicKey::dangerous_assume_tweaked(
+    ///                 XOnlyPublicKey::from_slice(&[1u8; 32]).unwrap()
+    ///             )
+    ///         ),
+    ///     },
+    ///     bip119::TxOut {
+    ///         value: Amount::from_sat(999_999),
+    ///         script_pubkey: ScriptPubkey::new_p2tr_tweaked(
+    ///             TweakedPublicKey::dangerous_assume_tweaked(
+    ///                 XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap()
+    ///             )
+    ///         ),
+    ///     },
     /// ];
     ///
     /// let sequences_sha256 = hash_sequences(sequences.iter().cloned());
     ///
-    /// let outputs_sha256 = {
-    ///     let mut sha256 = sha256::Hash::engine();
-    ///
-    ///     let taproot_script_pubkey_len = 1 + 1 + 32;
-    ///     let segwit_v1_opcode = Opcode::from(WitnessVersion::V1).to_u8();
-    ///     let taproot_script_prefix = [
-    ///         taproot_script_pubkey_len,
-    ///         segwit_v1_opcode,
-    ///         OP_PUSHBYTES_32.to_u8(),
-    ///     ];
-    ///
-    ///     for (amount, pubkey) in outputs {
-    ///         // [`Encodable::consensus_encode`] will never fail unless the underlying
-    ///         // [`Write::write`] fails.
-    ///         // [`HashEngine`] writes never fail.
-    ///         amount.consensus_encode(&mut sha256).unwrap();
-    ///         sha256.write(&taproot_script_prefix).unwrap();
-    ///         sha256.write(&pubkey.serialize()).unwrap();
-    ///     }
-    ///
-    ///     sha256::Hash::from_engine(sha256)
-    /// };
+    /// let outputs_sha256 = hash_outputs(&outputs);
     ///
     /// let ctv_hash = DefaultCheckTemplateVerifyHash::from_components(
     ///     transaction::Version::ONE,
