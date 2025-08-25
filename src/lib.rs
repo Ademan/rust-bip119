@@ -236,8 +236,11 @@ impl DefaultCheckTemplateVerifyHash {
     ///
     /// Rather than creating a [`bitcoin::Transaction`] and hashing it, code that
     /// wants to squeeze a bit of extra performance out of this library can
-    /// call this function directly. This can have a moderate overall performance impact for use
-    /// cases that generate large numbers of recursive CTV commitments.
+    /// call this function directly. In a [reasonable benchmark](https://github.com/Ademan/rust-bip119-bench),
+    /// [`from_components`] was ~31% faster than [`from_transaction`].
+    /// This will have a negligible impact on the runtime of most applications,
+    /// however, applications that generate large numbers of recursive CTV
+    /// commitments can potentially reap a substantial benefit.
     /// The convenience functions [`hash_sequences`], [`hash_script_sigs`], and
     /// [`hash_outputs`] are intended to simplify this process, however even
     /// more allocations can be avoided by computing `script_sig_sha256` and `outputs_sha256`
