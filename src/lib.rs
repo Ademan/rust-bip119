@@ -47,7 +47,7 @@ impl Decodable for DefaultCheckTemplateVerifyHash {
     }
 }
 
-/// Build an intermediate hash from an iterator of `Sequence`s
+/// Build an intermediate hash from an iterator of [`Sequence`]s
 pub fn hash_sequences<I>(sequences: I) -> sha256::Hash
 where
     I: IntoIterator<Item = Sequence>,
@@ -84,7 +84,7 @@ where
     }
 }
 
-/// Build an intermediate hash from an iterator of `TxOut`s
+/// Build an intermediate hash from an iterator of [`TxOut`]s
 pub fn hash_outputs<'a, I: IntoIterator<Item = &'a TxOut>>(outputs: I) -> sha256::Hash {
     let mut outputs_sha256 = sha256::Hash::engine();
     for output in outputs {
@@ -98,6 +98,122 @@ const CTV_ENC_EXPECT_MSG: &str = "hash writes are infallible";
 
 impl DefaultCheckTemplateVerifyHash {
     /// Calculate the BIP-119 default template for a transaction at a particular input index
+    /// # Examples
+    ///
+    /// ## A simple, naive vault construction
+    ///
+    /// ```rust
+    /// # use bitcoin::hashes::Hash;
+    /// # use bitcoin::opcodes::all::{OP_CHECKSIG, OP_CSV, OP_DROP};
+    /// # use bitcoin::secp256k1::{Secp256k1, XOnlyPublicKey};
+    /// # use bitcoin::taproot::{LeafVersion, TapNodeHash};
+    /// # use bitcoin::{absolute, Amount, blockdata::transaction, consensus::Encodable, Opcode, OutPoint, ScriptBuf, Sequence, Transaction, Txid, TxIn, TxOut, Witness};
+    /// use bip119::{DefaultCheckTemplateVerifyHash, OP_CHECKTEMPLATEVERIFY};
+    ///
+    /// # let secp = Secp256k1::new();
+    /// let cold_key = XOnlyPublicKey::from_slice(&[1u8; 32]).unwrap();
+    /// let spending_key = XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap();
+    ///
+    /// # const PAY_TO_ANCHOR_SCRIPT_BYTES: &[u8] = &[0x51, 0x02, 0x4e, 0x73];
+    /// # let anchor_script_pubkey = ScriptBuf::from_bytes(PAY_TO_ANCHOR_SCRIPT_BYTES.to_vec());
+    ///
+    /// let dummy_prevout = OutPoint {
+    ///     txid: Txid::from_byte_array([0u8; 32]),
+    ///     vout: 0,
+    /// };
+    ///
+    /// let anchor_output = TxOut {
+    ///     value: Amount::ZERO,
+    ///     script_pubkey: anchor_script_pubkey,
+    /// };
+    ///
+    /// let clawback_template = Transaction {
+    ///     version: transaction::Version::non_standard(3),
+    ///     lock_time: absolute::LockTime::ZERO,
+    ///     input: vec![
+    ///         TxIn {
+    ///             previous_output: dummy_prevout,
+    ///             sequence: Sequence::ZERO,
+    ///             script_sig: ScriptBuf::new(),
+    ///             witness: Witness::new(),
+    ///         },
+    ///     ],
+    ///     output: vec![
+    ///         TxOut {
+    ///             value: Amount::from_sat(100_000_000),
+    ///             script_pubkey: ScriptBuf::new_p2tr(&secp, cold_key, None),
+    ///         },
+    ///         anchor_output,
+    ///     ],
+    /// };
+    ///
+    /// let clawback_template_hash =
+    ///     DefaultCheckTemplateVerifyHash::from_transaction(&clawback_template, 0);
+    /// let mut clawback_script = ScriptBuf::new();
+    /// clawback_script.push_slice(clawback_template_hash);
+    /// clawback_script.push_opcode(OP_CHECKTEMPLATEVERIFY);
+    /// // We don't have to drop since the template hash is nonzero, this satisfies cleanstack
+    ///
+    /// let mut spending_script = ScriptBuf::new();
+    /// spending_script.push_slice(&[36u8]); // 36 blocks
+    /// spending_script.push_opcode(OP_CSV);
+    /// spending_script.push_opcode(OP_DROP);
+    /// spending_script.push_slice(&spending_key.serialize());
+    /// spending_script.push_opcode(OP_CHECKSIG);
+    ///
+    /// let clawback_tap_node_hash = TapNodeHash::from_script(&clawback_script, LeafVersion::TapScript);
+    /// let spending_tap_node_hash = TapNodeHash::from_script(&spending_script, LeafVersion::TapScript);
+    ///
+    /// let merkle_root = TapNodeHash::from_node_hashes(clawback_tap_node_hash, spending_tap_node_hash);
+    ///
+    /// // This script_pubkey can immediately be spent by the cold key,
+    /// // be spent by the spending_key after a 36 block delay, or
+    /// // clawed back to only be spendable by the cold key, but with no need
+    /// // to bring the cold keys online.
+    ///
+    /// let withdrawal_script_pubkey = ScriptBuf::new_p2tr(&secp, cold_key, Some(merkle_root));
+    ///
+    /// let withdrawal_template = Transaction {
+    ///     version: transaction::Version::non_standard(3),
+    ///     lock_time: absolute::LockTime::ZERO,
+    ///     input: vec![
+    ///         TxIn {
+    ///             previous_output: dummy_prevout,
+    ///             sequence: Sequence::ZERO,
+    ///             script_sig: ScriptBuf::new(),
+    ///             witness: Witness::new(),
+    ///         },
+    ///     ],
+    ///     output: vec![
+    ///         TxOut {
+    ///             value: Amount::from_sat(100_000_000),
+    ///             script_pubkey: ScriptBuf::new_p2tr(&secp, cold_key, None),
+    ///         },
+    ///         anchor_output,
+    ///     ],
+    /// };
+    ///
+    /// // this hash commits to being the first input to the withdrawal_tx
+    /// let withdrawal_template_hash =
+    ///     DefaultCheckTemplateVerifyHash::from_transaction(&withdrawal_template, 0);
+    ///
+    /// let mut withdrawal_script = ScriptBuf::new();
+    /// clawback_script.push_slice(withdrawal_template_hash);
+    /// clawback_script.push_opcode(OP_CHECKTEMPLATEVERIFY);
+    ///
+    /// // This vault output can either be spent by the cold_key, or spent by the
+    /// // withdrawal_template. The withdrawal template's output can then be spent
+    /// // by the cold key, the spending_key after a 36 block delay, or spent
+    /// // by the clawback_template which has its own output which is locked to
+    /// // only the cold_key
+    ///
+    /// let vault_script_pubkey = ScriptBuf::new_p2tr(
+    ///     &secp,
+    ///     cold_key,
+    ///     Some(TapNodeHash::from_script(&withdrawal_script, LeafVersion::TapScript)),
+    /// );
+    ///
+    /// ```
     pub fn from_transaction(transaction: &Transaction, input_index: u32) -> Self {
         let script_sig_sha256 = hash_script_sigs(transaction.input.iter().map(|input| &input.script_sig));
 
@@ -117,6 +233,70 @@ impl DefaultCheckTemplateVerifyHash {
 
     /// Low level function to calculate the BIP-119 default template from intermediate hashes and
     /// individual components.
+    ///
+    /// Rather than creating a [`bitcoin::Transaction`] and hashing it, code that
+    /// wants to squeeze a bit of extra performance out of this library can
+    /// call this function directly. This can have a moderate overall performance impact for use
+    /// cases that generate large numbers of recursive CTV commitments.
+    /// The convenience functions [`hash_sequences`], [`hash_script_sigs`], and
+    /// [`hash_outputs`] are intended to simplify this process, however even
+    /// more allocations can be avoided by computing `script_sig_sha256` and `outputs_sha256`
+    /// manually.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use bitcoin::hashes::{Hash, HashEngine, sha256};
+    /// # use bitcoin::opcodes::all::OP_PUSHBYTES_32;
+    /// # use bitcoin::secp256k1::XOnlyPublicKey;
+    /// # use bitcoin::{absolute, Amount, blockdata::transaction, consensus::Encodable, io::Write, Opcode, Sequence, WitnessVersion};
+    /// use bip119::{DefaultCheckTemplateVerifyHash, hash_sequences};
+    ///
+    /// let sequences = [Sequence::ZERO, Sequence::ZERO, Sequence::from_height(42)];
+    ///
+    /// let outputs = [
+    ///     (Amount::from_sat(42_000), XOnlyPublicKey::from_slice(&[1u8; 32]).unwrap()),
+    ///     (Amount::from_sat(999_999), XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap()),
+    /// ];
+    ///
+    /// let sequences_sha256 = hash_sequences(sequences.iter().cloned());
+    ///
+    /// let outputs_sha256 = {
+    ///     let mut sha256 = sha256::Hash::engine();
+    ///
+    ///     let taproot_script_pubkey_len = 1 + 1 + 32;
+    ///     let segwit_v1_opcode = Opcode::from(WitnessVersion::V1).to_u8();
+    ///     let taproot_script_prefix = [
+    ///         taproot_script_pubkey_len,
+    ///         segwit_v1_opcode,
+    ///         OP_PUSHBYTES_32.to_u8(),
+    ///     ];
+    ///
+    ///     for (amount, pubkey) in outputs {
+    ///         // [`Encodable::consensus_encode`] will never fail unless the underlying
+    ///         // [`Write::write`] fails.
+    ///         // [`HashEngine`] writes never fail.
+    ///         amount.consensus_encode(&mut sha256).unwrap();
+    ///         sha256.write(&taproot_script_prefix).unwrap();
+    ///         sha256.write(&pubkey.serialize()).unwrap();
+    ///     }
+    ///
+    ///     sha256::Hash::from_engine(sha256)
+    /// };
+    ///
+    /// let ctv_hash = DefaultCheckTemplateVerifyHash::from_components(
+    ///     transaction::Version::ONE,
+    ///     absolute::LockTime::ZERO,
+    ///     sequences.len() as u32, // input count
+    ///     None, // No script sigs
+    ///     sequences_sha256,
+    ///     outputs.len() as u32, // output count
+    ///     outputs_sha256,
+    ///     0, // First input
+    /// );
+    ///
+    /// ```
+    #[allow(clippy::too_many_arguments)]
     pub fn from_components(
         version: Version,
         lock_time: absolute::LockTime,
@@ -125,7 +305,7 @@ impl DefaultCheckTemplateVerifyHash {
         sequences_sha256: sha256::Hash,
         vout_count: u32,
         outputs_sha256: sha256::Hash,
-        input_index: u32
+        input_index: u32,
     ) -> Self {
         // Since sha256::Hash::write() won't fail and consensus_encode() guarantees to never
         // fail unless the underlying Write::write() fails, we don't need to worry about
