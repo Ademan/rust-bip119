@@ -143,7 +143,7 @@ impl DefaultCheckTemplateVerifyHash {
     ///             value: Amount::from_sat(100_000_000),
     ///             script_pubkey: ScriptBuf::new_p2tr(&secp, cold_key, None),
     ///         },
-    ///         anchor_output,
+    ///         anchor_output.clone(),
     ///     ],
     /// };
     ///
@@ -237,7 +237,7 @@ impl DefaultCheckTemplateVerifyHash {
     /// Rather than creating a [`bitcoin::Transaction`] and hashing it, code that
     /// wants to squeeze a bit of extra performance out of this library can
     /// call this function directly. In a [reasonable benchmark](https://github.com/Ademan/rust-bip119-bench),
-    /// [`from_components`] was ~31% faster than [`from_transaction`].
+    /// [`Self::from_components`] was ~31% faster than [`Self::from_transaction`].
     /// This will have a negligible impact on the runtime of most applications,
     /// however, applications that generate large numbers of recursive CTV
     /// commitments can potentially reap a substantial benefit.
