@@ -8,7 +8,6 @@ description = "Minimal support for BIP-119 CHECKTEMPLATEVERIFY"
 categories = ["cryptography::cryptocurrencies"]
 keywords = [ "crypto", "bitcoin" ]
 readme = "README.md"
-exclude = ["tests"]
 
 [features]
 serde = ["dep:serde", "bitcoin/serde"]
